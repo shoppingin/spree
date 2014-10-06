@@ -38,7 +38,13 @@ module Spree
       @order = current_order || Order.new
       associate_user
       if stale?(current_order)
-        respond_with(current_order)
+        respond_with(current_order) do |format|
+          format.html { render :layout => params[:layout].blank? }
+        end
+      else 
+        respond_to do |format|
+          format.html { render :layout => params[:layout].blank? }
+        end
       end
     end
 
@@ -50,10 +56,14 @@ module Spree
 
         respond_with(@order) do |format|
           format.html { redirect_to cart_path }
+          format.json{ render json: @order  }
         end
       else
         flash[:error] = populator.errors.full_messages.join(" ")
-        redirect_to :back
+        respond_with(@order) do |format|
+          format.html { redirect_back_or_default(spree.root_path) }
+          format.json{ render json: 'error', status: 402  }
+        end        
       end
     end
 
