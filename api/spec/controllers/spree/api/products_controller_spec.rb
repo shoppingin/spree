@@ -6,7 +6,7 @@ module Spree
     render_views
 
     let!(:product) { create(:product) }
-    let!(:inactive_product) { create(:product, :available_on => Time.now.tomorrow, :name => "inactive") }
+    let!(:inactive_product) { create(:product, available_on: Time.now.tomorrow, name: "inactive") }
     let(:base_attributes) { Api::ApiHelpers.product_attributes }
     let(:show_attributes) { base_attributes.dup.push(:has_variants) }
     let(:new_attributes) { base_attributes }
@@ -65,6 +65,34 @@ module Spree
         json_response["current_page"].should == 1
         json_response["pages"].should == 1
         json_response["per_page"].should == Kaminari.config.default_per_page
+      end
+
+      context "specifying a rabl template for a custom action" do
+        before do
+          Spree::Api::ProductsController.class_eval do
+            def custom_show
+              @product = find_product(params[:id])
+              respond_with(@product)
+            end
+          end
+        end
+
+        it "uses the specified custom template through the request header" do
+          request.headers['X-Spree-Template'] = 'show'
+          api_get :custom_show, :id => product.id
+          response.should render_template('spree/api/products/show')
+        end
+
+        it "uses the specified custom template through the template URL parameter" do
+          api_get :custom_show, :id => product.id, :template => 'show'
+          response.should render_template('spree/api/products/show')
+        end
+
+        it "falls back to the default template if the specified template does not exist" do
+          request.headers['X-Spree-Template'] = 'invoice'
+          api_get :show, :id => product.id
+          response.should render_template('spree/api/products/show')
+        end
       end
 
       context "product has more than one price" do
@@ -360,7 +388,7 @@ module Spree
         end
 
         it "can create new variants on a product" do
-          api_put :update, :id => product.to_param, :product => { :variants => [attributes_for_variant, attributes_for_variant] }
+          api_put :update, :id => product.to_param, :product => { :variants => [attributes_for_variant, attributes_for_variant.merge(sku: "ABC-#{Kernel.rand(9999)}")] }
           expect(response.status).to eq 200
           expect(json_response['variants'].count).to eq(2) # 2 variants
 

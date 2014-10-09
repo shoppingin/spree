@@ -14,11 +14,14 @@ module Spree
       before_filter :load_user
       before_filter :authorize_for_order, :if => Proc.new { order_token.present? }
       before_filter :authenticate_user
+      before_filter :load_user_roles
+
       after_filter  :set_jsonp_format
 
-      rescue_from Exception, :with => :error_during_processing
-      rescue_from CanCan::AccessDenied, :with => :unauthorized
-      rescue_from ActiveRecord::RecordNotFound, :with => :not_found
+      rescue_from Exception, with: :error_during_processing
+      rescue_from ActiveRecord::RecordNotFound, with: :not_found
+      rescue_from CanCan::AccessDenied, with: :unauthorized
+      rescue_from Spree::Core::GatewayError, with: :gateway_error
 
       helper Spree::Api::ApiHelpers
 
@@ -42,7 +45,7 @@ module Spree
 
       # users should be able to set price when importing orders via api
       def permitted_line_item_attributes
-        if current_api_user.has_spree_role?("admin")
+        if @current_user_roles.include?("admin")
           super << [:price, :variant_id, :sku]
         else
           super
@@ -78,8 +81,16 @@ module Spree
         end
       end
 
+      def load_user_roles
+        @current_user_roles = if @current_api_user
+          @current_api_user.spree_roles.pluck(:name)
+        else
+          []
+        end
+      end
+
       def unauthorized
-        render "spree/api/errors/unauthorized", :status => 401 and return
+        render "spree/api/errors/unauthorized", status: 401 and return
       end
 
       def error_during_processing(exception)
@@ -90,12 +101,17 @@ module Spree
           :status => 422 and return
       end
 
+      def gateway_error(exception)
+        @order.errors.add(:base, exception.message)
+        invalid_resource!(@order)
+      end
+
       def requires_authentication?
         Spree::Api::Config[:requires_authentication]
       end
 
       def not_found
-        render "spree/api/errors/not_found", :status => 404 and return
+        render "spree/api/errors/not_found", status: 404 and return
       end
 
       def current_ability
@@ -130,20 +146,25 @@ module Spree
       end
 
       def product_scope
-        variants_associations = [{ option_values: :option_type }, :default_price, :prices, :images]
-        if current_api_user.has_spree_role?("admin")
-          scope = Product.with_deleted.accessible_by(current_ability, :read)
-            .includes(:properties, :option_types, variants: variants_associations, master: variants_associations)
+        if @current_user_roles.include?("admin")
+          scope = Product.with_deleted.accessible_by(current_ability, :read).includes(*product_includes)
 
           unless params[:show_deleted]
             scope = scope.not_deleted
           end
         else
-          scope = Product.accessible_by(current_ability, :read).active
-            .includes(:properties, :option_types, variants: variants_associations, master: variants_associations)
+          scope = Product.accessible_by(current_ability, :read).active.includes(*product_includes)
         end
 
         scope
+      end
+
+      def variants_associations
+        [{ option_values: :option_type }, :default_price, :images]
+      end
+
+      def product_includes
+        [ :option_types, variants: variants_associations, master: variants_associations ]
       end
 
       def order_id

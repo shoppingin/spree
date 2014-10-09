@@ -3,14 +3,17 @@ module Spree
     belongs_to :payment_method
     has_many :payments, as: :source
 
-    before_save :set_last_digits
+    before_create :set_missing_info
 
-    attr_accessor :number, :verification_value, :encrypted_data
+    attr_accessor :encrypted_data,
+                    :number,
+                    :imported,
+                    :verification_value
 
     validates :month, :year, numericality: { only_integer: true }, if: :require_card_numbers?, on: :create
-    validates :number, presence: true, if: :require_card_numbers?, on: :create
+    validates :number, presence: true, if: :require_card_numbers?, on: :create, unless: :imported
     validates :name, presence: true, if: :require_card_numbers?, on: :create
-    validates :verification_value, presence: true, if: :require_card_numbers?, on: :create
+    validates :verification_value, presence: true, if: :require_card_numbers?, on: :create, unless: :imported
 
     validate :expiry_not_in_the_past
 
@@ -60,12 +63,6 @@ module Spree
       end
     end
 
-    def set_last_digits
-      number.to_s.gsub!(/\s/,'')
-      verification_value.to_s.gsub!(/\s/,'')
-      self.last_digits ||= number.to_s.length <= 4 ? number : number.to_s.slice(-4..-1)
-    end
-
     def try_type_from_number
       numbers = number.delete(' ') if number
       CARD_TYPES.find{|type, pattern| return type.to_s if numbers =~ pattern}.to_s
@@ -91,7 +88,7 @@ module Spree
 
     # Indicates whether its possible to void the payment.
     def can_void?(payment)
-      !payment.void?
+      !payment.failed? && !payment.void?
     end
 
     # Indicates whether its possible to credit the payment.  Note that most gateways require that the
@@ -132,9 +129,13 @@ module Spree
 
     def expiry_not_in_the_past
       if year.present? && month.present?
-        time = Time.zone.parse("#{year}-#{month}-1")
-        if time < Time.zone.now.to_time.beginning_of_month
-          errors.add(:base, :card_expired)
+        if month.to_i < 1 || month.to_i > 12
+          errors.add(:base, :expiry_invalid)
+        else
+          current = Time.current
+          if year.to_i < current.year or (year.to_i == current.year and month.to_i < current.month)
+            errors.add(:base, :card_expired)
+          end
         end
       end
     end
@@ -142,5 +143,25 @@ module Spree
     def require_card_numbers?
       !self.encrypted_data.present? && !self.has_payment_profile?
     end
+
+    def set_last_digits
+      number.to_s.gsub!(/\s/,'')
+      verification_value.to_s.gsub!(/\s/,'')
+      self.last_digits ||= number.to_s.length <= 4 ? number : number.to_s.slice(-4..-1)
+    end
+
+    def set_missing_info
+      set_last_digits
+      if has_payment_profile?
+        if matching_card = self.class.where(gateway_customer_profile_id: self.gateway_customer_profile_id, gateway_payment_profile_id: self.gateway_payment_profile_id).first
+          self.cc_type     = matching_card.cc_type
+          self.last_digits = matching_card.last_digits
+          self.month       = matching_card.month
+          self.name        = matching_card.name
+          self.year        = matching_card.year
+        end
+      end
+    end
+
   end
 end

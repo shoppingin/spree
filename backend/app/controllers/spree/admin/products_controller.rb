@@ -59,7 +59,7 @@ module Spree
         if @new.save
           flash[:success] = Spree.t('notice_messages.product_cloned')
         else
-          flash[:success] = Spree.t('notice_messages.product_not_cloned')
+          flash[:error] = Spree.t('notice_messages.product_not_cloned')
         end
 
         redirect_to edit_admin_product_url(@new)
@@ -99,7 +99,7 @@ module Spree
 
           params[:q][:s] ||= "name asc"
           @collection = super
-          @collection = @collection.with_deleted if params[:q][:deleted_at_null] == '0'
+          @collection = @collection.with_deleted if params[:q].delete(:deleted_at_null) == '0'
           # @search needs to be defined as this is passed to search_form_for
           @search = @collection.ransack(params[:q])
           @collection = @search.result.
@@ -123,9 +123,9 @@ module Spree
         end
 
         def product_includes
-          [{ :variants => [:images, { :option_values => :option_type }], :master => [:images, :default_price]}]
+          [{ :variants => [:images], :master => [:images, :default_price]}]
         end
-        
+
         def clone_object_url resource
           clone_admin_product_url resource
         end

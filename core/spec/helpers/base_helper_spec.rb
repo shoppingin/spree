@@ -71,7 +71,7 @@ describe Spree::BaseHelper do
 
   # Regression test for #2034
   context "flash_message" do
-    let(:flash) { {:notice => "ok", :foo => "foo", :bar => "bar"} }
+    let(:flash) { {"notice" => "ok", "foo" => "foo", "bar" => "bar"} }
 
     it "should output all flash content" do
       flash_messages
@@ -135,6 +135,25 @@ describe Spree::BaseHelper do
       content = tags.css("meta[name=description]").first["content"]
       assert content.length <= 160, "content length is not truncated to 160 characters"
     end
+  end
+
+  # Regression test for #5384
+  context "custom image helpers conflict with inproper statements" do
+    let(:product) { mock_model(Spree::Product, :images => [], :variant_images => []) }
+    before do
+      Spree::Image.class_eval do
+        attachment_definitions[:attachment][:styles].merge!({:foobar => '1x1'})
+      end
+    end
+
+    it "should not raise errors when helper method called" do
+      expect { foobar_image(product) }.not_to raise_error
+    end
+
+    it "should raise NoMethodError when statement with name equal to style name called" do
+      expect { foobar(product) }.to raise_error(NoMethodError)
+    end
+
   end
 
   context "pretty_time" do

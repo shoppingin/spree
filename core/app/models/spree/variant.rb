@@ -11,6 +11,7 @@ module Spree
 
     has_many :inventory_units
     has_many :line_items, inverse_of: :variant
+    has_many :orders, through: :line_items
 
     has_many :stock_items, dependent: :destroy, inverse_of: :variant
     has_many :stock_locations, through: :stock_items
@@ -32,9 +33,9 @@ module Spree
       inverse_of: :variant
 
     validate :check_price
-    validates :price, numericality: { greater_than_or_equal_to: 0 }
-
     validates :cost_price, numericality: { greater_than_or_equal_to: 0, allow_nil: true }
+    validates :price, numericality: { greater_than_or_equal_to: 0 }
+    validates_uniqueness_of :sku, allow_blank: true, conditions: -> { where(deleted_at: nil) }
 
     before_validation :set_cost_currency
     after_save :save_default_price
@@ -207,8 +208,12 @@ module Spree
         end
       end
 
+      def default_price_changed?
+        default_price && (default_price.changed? || default_price.new_record?)
+      end
+
       def save_default_price
-        default_price.save if default_price && (default_price.changed? || default_price.new_record?)
+        default_price.save if default_price_changed?
       end
 
       def set_cost_currency

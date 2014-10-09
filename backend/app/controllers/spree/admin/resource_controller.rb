@@ -37,7 +37,13 @@ class Spree::Admin::ResourceController < Spree::Admin::BaseController
       end
     else
       invoke_callbacks(:update, :fails)
-      respond_with(@object)
+      respond_with(@object) do |format|
+        format.html do
+          flash.now[:error] = @object.errors.full_messages.join(", ")
+          render action: 'edit'
+        end
+        format.js { render layout: false }
+      end
     end
   end
 
@@ -53,7 +59,13 @@ class Spree::Admin::ResourceController < Spree::Admin::BaseController
       end
     else
       invoke_callbacks(:create, :fails)
-      respond_with(@object)
+      respond_with(@object) do |format|
+        format.html do
+          flash.now[:error] = @object.errors.full_messages.join(", ")
+          render action: 'new'
+        end
+        format.js { render layout: false }
+      end
     end
   end
 
@@ -176,7 +188,7 @@ class Spree::Admin::ResourceController < Spree::Admin::BaseController
       if model_class.respond_to?(:accessible_by) && !current_ability.has_block?(params[:action], model_class)
         model_class.accessible_by(current_ability, action)
       else
-        model_class.scoped
+        model_class.where(nil)
       end
     end
 

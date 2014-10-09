@@ -10,8 +10,9 @@ describe Spree::Api::BaseController do
 
   context "signed in as a user using an authentication extension" do
     before do
-      controller.stub :try_spree_current_user => double(:email => "spree@example.com")
-      Spree::Api::Config[:requires_authentication] = true
+      user = double(:email => "spree@example.com")
+      user.stub_chain :spree_roles, pluck: []
+      controller.stub :try_spree_current_user => user
     end
 
     it "can make a request" do
@@ -66,12 +67,13 @@ describe Spree::Api::BaseController do
 
   it 'handles exceptions' do
     subject.should_receive(:authenticate_user).and_return(true)
+    subject.should_receive(:load_user_roles).and_return(true)
     subject.should_receive(:index).and_raise(Exception.new("no joy"))
     get :index, :token => "fake_key"
     json_response.should == { "exception" => "no joy" }
   end
 
-  it "maps symantec keys to nested_attributes keys" do
+  it "maps semantic keys to nested_attributes keys" do
     klass = double(:nested_attributes_options => { :line_items => {},
                                                   :bill_address => {} })
     attributes = { 'line_items' => { :id => 1 },
@@ -79,7 +81,11 @@ describe Spree::Api::BaseController do
                    'name' => 'test order' }
 
     mapped = subject.map_nested_attributes_keys(klass, attributes)
-    mapped.has_key?('line_items_attributes').should be_true
-    mapped.has_key?('name').should be_true
+    mapped.has_key?('line_items_attributes').should be true
+    mapped.has_key?('name').should be true
+  end
+
+  it "lets a subclass override the product associations that are eager-loaded" do
+    controller.respond_to?(:product_includes, true).should be
   end
 end

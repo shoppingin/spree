@@ -42,11 +42,10 @@ module Spree
     end
 
     context "the current api user is not persisted" do
-      let(:current_api_user) { double(persisted?: false) }
+      let(:current_api_user) { Spree.user_class.new }
 
       it "returns a 401" do
         api_get :mine
-
         response.status.should == 401
       end
     end
@@ -72,6 +71,18 @@ module Spree
 
         response.status.should == 200
         json_response["orders"].length.should == 0
+      end
+
+      it "returns orders in reverse chronological order" do
+        order2 = create(:order, line_items: [line_item], user: order.user)
+        order2.created_at.should > order.created_at
+
+        api_get :mine
+        response.status.should == 200
+        json_response["pages"].should == 1
+        json_response["orders"].length.should == 2
+        json_response["orders"][0]["number"].should == order2.number
+        json_response["orders"][1]["number"].should == order.number
       end
     end
 
@@ -120,6 +131,7 @@ module Spree
 
       it "can view an order" do
         user = mock_model(Spree::LegacyUser)
+        user.stub_chain(:spree_roles, :pluck).and_return(["bar"])
         user.stub(:has_spree_role?).with('bar').and_return(true)
         user.stub(:has_spree_role?).with('admin').and_return(false)
         controller.stub try_spree_current_user: user
@@ -168,7 +180,7 @@ module Spree
       Order.should_receive(:create!).and_return(order = Spree::Order.new)
       order.stub(:associate_user!)
       order.stub_chain(:contents, :add).and_return(line_item = double('LineItem'))
-      line_item.should_receive(:update_attributes).with("special" => true)
+      line_item.should_receive(:update_attributes!).with("special" => true)
 
       controller.stub(permitted_line_item_attributes: [:id, :variant_id, :quantity, :special])
       api_post :create, :order => {
@@ -195,11 +207,15 @@ module Spree
     end
 
     context "admin user imports order" do
-      before { current_api_user.stub has_spree_role?: true }
+      before do
+        current_api_user.stub has_spree_role?: true
+        current_api_user.stub_chain :spree_roles, pluck: ["admin"]
+      end
 
-      it "sets channel" do
-        api_post :create, :order => { channel: "amazon" }
-        expect(json_response['channel']).to eq "amazon"
+      it "is able to set any default unpermitted attribute" do
+        api_post :create, :order => { number: "WOW" }
+        expect(response.status).to eq 201
+        expect(json_response['number']).to eq "WOW"
       end
     end
 
@@ -437,16 +453,17 @@ module Spree
           end
 
           before do
+            order.bill_address = FactoryGirl.create(:address)
             order.ship_address = FactoryGirl.create(:address)
-            order.state = 'delivery'
+            order.next!
             order.save
           end
 
           it "includes the ship_total in the response" do
-            api_get :show, :id => order.to_param
+            api_get :show, id: order.to_param
 
-            json_response['ship_total'].should == '0.0'
-            json_response['display_ship_total'].should == '$0.00'
+            expect(json_response['ship_total']).to eq '10.0'
+            expect(json_response['display_ship_total']).to eq '$10.00'
           end
 
           it "returns available shipments for an order" do
@@ -469,7 +486,7 @@ module Spree
             shipping_rate = shipment["shipping_rates"][0]
             shipping_rate["name"].should == json_shipping_method["name"]
             shipping_rate["cost"].should == "10.0"
-            shipping_rate["selected"].should be_true
+            shipping_rate["selected"].should be true
             shipping_rate["display_cost"].should == "$10.00"
 
             shipment["stock_location_name"].should_not be_blank
@@ -494,9 +511,9 @@ module Spree
 
       it "responds with orders updated_at with miliseconds precision" do
         if ActiveRecord::Base.connection.adapter_name == "Mysql2"
-          pending "MySQL does not support millisecond timestamps."
+          skip "MySQL does not support millisecond timestamps."
         else
-          pending "Probable need to make it call as_json. See https://github.com/rails/rails/commit/0f33d70e89991711ff8b3dde134a61f4a5a0ec06"
+          skip "Probable need to make it call as_json. See https://github.com/rails/rails/commit/0f33d70e89991711ff8b3dde134a61f4a5a0ec06"
         end
 
         api_get :index
@@ -578,6 +595,13 @@ module Spree
       end
 
       context "creation" do
+        it "can create an order without any parameters" do
+          lambda { api_post :create }.should_not raise_error
+          response.status.should == 201
+          order = Order.last
+          json_response["state"].should == "cart"
+        end
+
         it "can arbitrarily set the line items price" do
           api_post :create, :order => {
             :line_items => {

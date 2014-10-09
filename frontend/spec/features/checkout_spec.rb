@@ -63,7 +63,7 @@ describe "Checkout", inaccessible: true do
         click_button "Save and Continue"
         page.should_not have_content("undefined method `promotion'")
         click_button "Save and Continue"
-        page.should have_content("Shipping total $10.00")
+        page.should have_content("Shipping total: $10.00")
       end
     end
 
@@ -224,6 +224,7 @@ describe "Checkout", inaccessible: true do
 
       Spree::CheckoutController.any_instance.stub(current_order: order)
       Spree::CheckoutController.any_instance.stub(try_spree_current_user: user)
+      Spree::OrdersController.any_instance.stub(try_spree_current_user: user)
 
       visit spree.checkout_state_path(:payment)
     end
@@ -442,7 +443,10 @@ describe "Checkout", inaccessible: true do
 
     context 'as a User' do
       before do
-        Spree::CheckoutController.any_instance.stub(:try_spree_current_user => create(:user))
+        user = create(:user)
+        Spree::Order.last.update_column :user_id, user.id
+        Spree::OrdersController.any_instance.stub(try_spree_current_user: user)
+        Spree::CheckoutController.any_instance.stub(try_spree_current_user: user)
         click_button "Checkout"
       end
 

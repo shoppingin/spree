@@ -72,12 +72,12 @@ describe Spree::ReturnAuthorization do
   context "can_receive?" do
     it "should allow_receive when inventory units assigned" do
       return_authorization.stub(:inventory_units => [1,2,3])
-      return_authorization.can_receive?.should be_true
+      return_authorization.can_receive?.should be true
     end
 
     it "should not allow_receive with no inventory units" do
       return_authorization.stub(:inventory_units => [])
-      return_authorization.can_receive?.should be_false
+      return_authorization.can_receive?.should be false
     end
   end
 
@@ -194,4 +194,17 @@ describe Spree::ReturnAuthorization do
       return_authorization.returnable_inventory.should == []
     end
   end
+
+  context "destroy" do
+    before do
+      return_authorization.add_variant(variant.id, 1)
+      return_authorization.destroy
+    end
+
+    # Regression test for #4935
+    it "disassociates inventory units" do
+      expect(Spree::InventoryUnit.where(return_authorization_id: return_authorization.id).count).to eq 0
+    end
+  end
+
 end
